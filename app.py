@@ -11,8 +11,12 @@ HF_TOKEN = os.getenv('HF_TOKEN')
 st.set_page_config(page_title="AI Career Assistant", layout="wide")
 st.title("🚀 AI Career Assistant")
 
-# Helper function for Groq API (chat)
+# Helper function for Groq API (chat) with chunking
 def query_groq(prompt):
+    MAX_CHARS = 6000  # stay under token limits
+    if len(prompt) > MAX_CHARS:
+        prompt = prompt[:MAX_CHARS]
+    
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
@@ -42,6 +46,10 @@ def query_huggingface(input_text):
 resume = st.file_uploader("Upload your resume (PDF/DOCX/TXT)")
 if resume:
     resume_content = resume.read().decode(errors='ignore')
+    if len(resume_content) > 5000:
+        st.warning("⚠️ Your resume is too large; trimming to fit API limits.")
+        resume_content = resume_content[:5000]
+    
     st.success("✅ Resume uploaded successfully!")
 
     # Resume enhancement
@@ -50,6 +58,9 @@ if resume:
     if jd_based == 'Yes':
         jd_text = st.text_area("Paste the Job Description here:")
         if jd_text and st.button("Generate JD-based Resume Enhancement Report"):
+            if len(jd_text) > 3000:
+                st.warning("⚠️ JD text too long; trimming to fit API limits.")
+                jd_text = jd_text[:3000]
             with st.spinner("Generating report..."):
                 prompt = f"Provide resume enhancement tips for this resume:\n{resume_content}\nBased on this JD:\n{jd_text}"
                 result = query_groq(prompt)
@@ -58,7 +69,7 @@ if resume:
         position = st.text_input("Enter the position you want to apply for:")
         if position and st.button("Generate General Resume Report"):
             with st.spinner("Generating report..."):
-                prompt = f"Provide general resume improvement tips for this resume:\n{resume_content}\nTargeting the position:\n{position}"
+                prompt = f"Provide general resume improvement tips for this resume (keep under 6000 chars):\n{resume_content}\nTargeting the position:\n{position}"
                 result = query_groq(prompt)
                 st.write(result)
 
@@ -69,7 +80,7 @@ if resume:
         company = st.text_input("Enter the target company name:")
         if company and st.button("Generate Cover Letter"):
             with st.spinner("Generating cover letter..."):
-                prompt = f"Write a {word_limit}-word cover letter for a {experience} candidate applying to {company} based on this resume:\n{resume_content}"
+                prompt = f"Write a {word_limit}-word cover letter for a {experience} candidate applying to {company} based on this resume (keep under 6000 chars):\n{resume_content}"
                 result = query_groq(prompt)
                 st.write(result)
 
