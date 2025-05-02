@@ -1,6 +1,7 @@
 streamlit
 requests
-python-docx
-PyPDF2
 python-dotenv
-gtts
+PyPDF2
+python-docx
+joblib
+huggingface_hub
