@@ -7,4 +7,4 @@ python-dotenv
 requests
 huggingface_hub
 PyMuPDF
-
+PyPDF2
