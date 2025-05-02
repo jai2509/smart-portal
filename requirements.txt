@@ -1,7 +1,10 @@
 streamlit
-requests
-python-dotenv
-PyPDF2
-python-docx
 joblib
+scikit-learn
+python-docx
+pdfminer.six
+python-dotenv
+requests
 huggingface_hub
+PyMuPDF
+
