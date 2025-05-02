@@ -1,3 +1,4 @@
+
 import streamlit as st
 import requests
 import os
@@ -6,10 +7,14 @@ import PyPDF2
 from io import BytesIO
 from docx import Document
 from dotenv import load_dotenv
+from gtts import gTTS
+import tempfile
+import base64
 
 load_dotenv()
 
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
+HF_TOKEN = os.getenv('HF_TOKEN')
 
 st.set_page_config(page_title="AI Career Assistant", layout="wide")
 st.title("🚀 AI Career Assistant")
@@ -58,6 +63,14 @@ def export_docx(text, filename="cover_letter.docx"):
     buffer.seek(0)
     return buffer
 
+# TTS for Streamlit
+def tts_streamlit(text):
+    tts = gTTS(text)
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as f:
+        tts.save(f.name)
+        audio_bytes = open(f.name, "rb").read()
+        st.audio(audio_bytes, format="audio/mp3")
+
 # Resume Upload
 resume = st.file_uploader("Upload your resume (PDF, DOCX, or TXT)")
 resume_content = ""
@@ -88,25 +101,20 @@ if resume:
                     st.warning("⚠️ JD text too long; trimming.")
                     jd_text = jd_text[:2000]
                 with st.spinner("Generating..."):
-                    prompt = f"""You are a career expert. Analyze the following resume and job description, and provide bullet-point suggestions to improve the resume based on the JD:
-
-Resume:
-{resume_content}
-
-Job Description:
-{jd_text}
-
-Respond in a structured and professional tone."""
-                    st.write(query_groq(prompt))
+                    prompt = f"Provide resume enhancement tips for this resume:\n{resume_content}\nBased on this JD:\n{jd_text}"
+                    response = query_groq(prompt)
+                    st.write(response)
+                    if st.button("🔊 Play Voice Feedback"):
+                        tts_streamlit(response)
         else:
             position = st.text_input("Enter the position you want to apply for:")
             if position and st.button("Generate General Resume Report"):
                 with st.spinner("Generating..."):
-                    prompt = f"""You are a resume consultant. Provide concise and actionable improvement tips for the following resume, targeting the position of {position}. Format your response in bullet points:
-
-Resume:
-{resume_content}"""
-                    st.write(query_groq(prompt))
+                    prompt = f"Give general resume improvement tips for this resume:\n{resume_content}\nTargeting the position: {position}"
+                    response = query_groq(prompt)
+                    st.write(response)
+                    if st.button("🔊 Play Voice Feedback"):
+                        tts_streamlit(response)
 
         # Cover Letter
         if st.checkbox("Generate a cover letter"):
@@ -115,15 +123,9 @@ Resume:
             company = st.text_input("Enter the target company name:")
             if company and st.button("Generate Cover Letter"):
                 with st.spinner("Generating cover letter..."):
-                    prompt = f"""Write a {word_limit}-word professional cover letter for a {experience} candidate applying to {company}, using the following resume for reference:
-
-{resume_content}
-
-Maintain formal tone and structure."""
+                    prompt = f"Write a {word_limit}-word cover letter for a {experience} candidate applying to {company} based on this resume:\n{resume_content}"
                     cover_text = query_groq(prompt)
                     st.write(cover_text)
-
-                    # Export option
                     buffer = export_docx(cover_text)
                     st.download_button(
                         label="📄 Download Cover Letter (.docx)",
@@ -131,25 +133,31 @@ Maintain formal tone and structure."""
                         file_name="cover_letter.docx",
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                     )
+                    if st.button("🔊 Play Cover Letter"):
+                        tts_streamlit(cover_text)
 
         # Roadmap Generator
         if st.checkbox("Generate a learning roadmap"):
             role = st.selectbox("Select role for roadmap:", ['Data Scientist', 'Full Stack Developer', 'Product Manager', 'Data Engineer'])
             if st.button("Generate Roadmap"):
                 with st.spinner("Generating roadmap..."):
-                    prompt = f"""Create a comprehensive, step-by-step learning roadmap to become a {role}. Include beginner, intermediate, and advanced milestones with key skills, tools, and resources. Format the output in bullet points."""
-                    st.write(query_groq(prompt))
+                    prompt = f"Create a roadmap to become a {role}, starting from basics to advanced with skills and milestones."
+                    roadmap = query_groq(prompt)
+                    st.write(roadmap)
+                    if st.button("🔊 Play Roadmap"):
+                        tts_streamlit(roadmap)
 
-        # Chatbot (Using Groq)
+        # Chatbot
         st.subheader("💬 Chat with the AI Career Assistant")
         user_query = st.text_input("Ask your career-related question:")
         if user_query:
             with st.spinner("Thinking..."):
-                prompt = f"""You are an expert career assistant. Provide a clear, concise, and structured answer in bullet points to the following question:
-
-{user_query}"""
-                result = query_groq(prompt)
-                st.write(result)
+                prompt = f"Answer this career-related question:
+{user_query}"
+                response = query_groq(prompt)
+                st.write(response)
+                if st.button("🔊 Play Answer"):
+                    tts_streamlit(response)
     else:
         st.error("Could not extract text from the uploaded resume.")
 else:
