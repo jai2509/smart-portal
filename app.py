@@ -14,7 +14,7 @@ HF_TOKEN = os.getenv('HF_TOKEN')
 JOOBLE_API_KEY = os.getenv('JOOBLE_API_KEY')
 
 st.set_page_config(page_title="AI Career Assistant", layout="wide")
-st.title("🚀 AI Career Assistant")
+st.title("🚀 SmartHire :AI JOB PORTAL ")
 
 def extract_docx(file):
     try:
@@ -45,27 +45,6 @@ def query_groq(prompt):
     response = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=data)
     if response.ok:
         return response.json()['choices'][0]['message']['content']
-    else:
-        return None
-
-def get_job_recommendations(resume, experience_years, stream, expected_salary, location):
-    API_URL = "https://api-inference.huggingface.co/models/jaik256/jobRecommendation"
-    headers = {
-        "Authorization": f"Bearer {HF_TOKEN}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "inputs": {
-            "resume_text": resume,
-            "experience_level": experience_years,
-            "stream": stream,
-            "expected_salary": expected_salary,
-            "location": location
-        }
-    }
-    response = requests.post(API_URL, headers=headers, json=payload)
-    if response.status_code == 200:
-        return response.json()
     else:
         return None
 
@@ -117,7 +96,7 @@ if resume:
             resume_content = resume_content[:4000]
 
         st.success("✅ Resume parsed successfully!")
-        
+
         graduation_year = st.text_input("Graduation year (e.g., 2023)")
         stream = st.text_input("Graduation stream (e.g., Computer Science)")
         expected_salary = st.text_input("Expected salary (in USD or your currency)")
@@ -133,17 +112,37 @@ if resume:
         st.subheader("🔍 Suggested Jobs")
         if st.button("Get Recommended Jobs"):
             with st.spinner("Fetching recommendations..."):
-                jobs = get_job_recommendations(resume_content, auto_experience, stream, expected_salary, location)
-                if jobs:
-                    for idx, job in enumerate(jobs, 1):
-                        st.markdown(f"**{idx}.** {job}")
+                jooble_jobs = get_jooble_jobs(stream, auto_experience, location)
+                if jooble_jobs:
+                    for idx, job in enumerate(jooble_jobs, 1):
+                        st.markdown(f"**{idx}.** [{job['title']} at {job['company']} ({job['location']})]({job['link']})")
                 else:
-                    jooble_jobs = get_jooble_jobs(stream, auto_experience, location)
-                    if jooble_jobs:
-                        for idx, job in enumerate(jooble_jobs, 1):
-                            st.markdown(f"**{idx}.** [{job['title']} at {job['company']} ({job['location']})]({job['link']})")
-                    else:
-                        st.info("No suitable jobs found at this time.")
+                    st.info("No suitable jobs found at this time.")
+
+        st.subheader("✍️ Resume Improvement Tips")
+        if st.button("Get Resume Tips"):
+            tips = query_groq(f"Please provide resume improvement tips for the following text:\n{resume_content}")
+            if tips:
+                st.write(tips)
+
+        st.subheader("📝 Generate Cover Letter")
+        if st.button("Generate Cover Letter"):
+            cover_letter = query_groq(f"Generate a professional cover letter for this resume:\n{resume_content}")
+            if cover_letter:
+                st.download_button("Download Cover Letter", export_docx(cover_letter), file_name="cover_letter.docx")
+
+        st.subheader("🗺️ Career Roadmap")
+        if st.button("Get Career Roadmap"):
+            roadmap = query_groq(f"Generate a career roadmap for someone with this background:\n{resume_content}")
+            if roadmap:
+                st.write(roadmap)
+
+        st.subheader("💬 Career Chatbot")
+        user_question = st.text_input("Ask the AI Career Assistant a question:")
+        if user_question:
+            answer = query_groq(f"Question: {user_question}\nBased on this resume:\n{resume_content}")
+            if answer:
+                st.write(answer)
     else:
         st.error("Could not extract text from the uploaded resume.")
 else:
