@@ -58,7 +58,6 @@ def get_job_recommendations(resume, experience_years, stream, expected_salary, l
         "inputs": {
             "resume_text": resume,
             "experience_level": experience_years,
-            "graduation_year": graduation_year,
             "stream": stream,
             "expected_salary": expected_salary,
             "location": location
@@ -80,7 +79,12 @@ def get_jooble_jobs(keywords, experience_years, location):
     response = requests.post(url, json=payload)
     if response.ok:
         jobs = response.json().get('jobs', [])
-        return [f"{job['title']} at {job['company']} ({job['location']})" for job in jobs]
+        return [{
+            'title': job['title'],
+            'company': job['company'],
+            'location': job['location'],
+            'link': job.get('link', '')
+        } for job in jobs]
     else:
         return []
 
@@ -114,7 +118,6 @@ if resume:
 
         st.success("✅ Resume parsed successfully!")
         
-        experience_input = st.selectbox("Select your experience level:", ["Fresher", "1-3 years", "3-5 years", "5+ years"])
         graduation_year = st.text_input("Graduation year (e.g., 2023)")
         stream = st.text_input("Graduation stream (e.g., Computer Science)")
         expected_salary = st.text_input("Expected salary (in USD or your currency)")
@@ -138,7 +141,7 @@ if resume:
                     jooble_jobs = get_jooble_jobs(stream, auto_experience, location)
                     if jooble_jobs:
                         for idx, job in enumerate(jooble_jobs, 1):
-                            st.markdown(f"**{idx}.** {job}")
+                            st.markdown(f"**{idx}.** [{job['title']} at {job['company']} ({job['location']})]({job['link']})")
                     else:
                         st.info("No suitable jobs found at this time.")
     else:
