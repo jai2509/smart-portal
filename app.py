@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 HF_TOKEN = os.getenv('HF_TOKEN')
+JOOBLE_API_KEY = os.getenv('JOOBLE_API_KEY')
 
 st.set_page_config(page_title="AI Career Assistant", layout="wide")
 st.title("🚀 AI Career Assistant")
@@ -48,7 +49,7 @@ def query_groq(prompt):
     else:
         return f"Error: {response.text}"
 
-# Hugging Face Job Recommendation API
+# Hugging Face Job Recommendation API with fallback to Jooble API
 def get_job_recommendations(resume, experience, grad_year, stream, expected_salary):
     API_URL = "https://api-inference.huggingface.co/models/jaik256/jobRecommendation"
     headers = {
@@ -68,7 +69,23 @@ def get_job_recommendations(resume, experience, grad_year, stream, expected_sala
     if response.status_code == 200:
         return response.json()
     else:
+        if 'Task not found' in response.text:
+            return get_jooble_jobs()
         return {"error": response.text}
+
+def get_jooble_jobs():
+    jooble_url = f"https://jooble.org/api/{JOOBLE_API_KEY}"
+    params = {
+        "keywords": "software developer",
+        "location": "remote"
+    }
+    response = requests.post(jooble_url, json=params)
+    if response.ok:
+        data = response.json()
+        jobs = [f"{job['title']} at {job['company']} ({job['location']})" for job in data.get('jobs', [])]
+        return jobs if jobs else ["No jobs found from Jooble."]
+    else:
+        return [f"Jooble API error: {response.text}"]
 
 # DOCX Export Helper
 def export_docx(text, filename="cover_letter.docx"):
@@ -172,7 +189,7 @@ Maintain formal tone and structure."""
         if st.button("Get Recommended Jobs"):
             with st.spinner("Fetching recommendations..."):
                 result = get_job_recommendations(resume_content, experience_level, grad_year, stream, expected_salary)
-                if "error" in result:
+                if isinstance(result, dict) and "error" in result:
                     st.error(f"Error: {result['error']}")
                 else:
                     st.success("✅ Here are your recommended job roles:")
