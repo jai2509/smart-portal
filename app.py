@@ -5,6 +5,7 @@ import docx
 import PyPDF2
 from io import BytesIO
 from docx import Document
+from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -15,7 +16,6 @@ JOOBLE_API_KEY = os.getenv('JOOBLE_API_KEY')
 st.set_page_config(page_title="AI Career Assistant", layout="wide")
 st.title("🚀 AI Career Assistant")
 
-# Text extraction helpers
 def extract_docx(file):
     try:
         doc = docx.Document(file)
@@ -30,7 +30,6 @@ def extract_pdf(file):
     except Exception:
         return ""
 
-# Groq API
 def query_groq(prompt):
     if len(prompt) > 5000:
         prompt = prompt[:5000]
@@ -47,10 +46,9 @@ def query_groq(prompt):
     if response.ok:
         return response.json()['choices'][0]['message']['content']
     else:
-        return "There was an issue generating the response."
+        return None
 
-# Hugging Face Job Recommendation API
-def get_job_recommendations(resume, experience, grad_year, stream, expected_salary):
+def get_job_recommendations(resume, experience_years, stream, expected_salary):
     API_URL = "https://api-inference.huggingface.co/models/jaik256/jobRecommendation"
     headers = {
         "Authorization": f"Bearer {HF_TOKEN}",
@@ -59,8 +57,8 @@ def get_job_recommendations(resume, experience, grad_year, stream, expected_sala
     payload = {
         "inputs": {
             "resume_text": resume,
-            "experience_level": experience,
-            "graduation_year": grad_year,
+            "experience_level": experience_years,
+            "graduation_year": graduation_year,
             "stream": stream,
             "expected_salary": expected_salary
         }
@@ -71,23 +69,19 @@ def get_job_recommendations(resume, experience, grad_year, stream, expected_sala
     else:
         return None
 
-# Jooble API fallback
-def get_jooble_jobs(query, location, experience_level):
+def get_jooble_jobs(keywords, experience_years):
     url = f"https://jooble.org/api/{JOOBLE_API_KEY}"
     payload = {
-        'keywords': query,
-        'location': location,
-        'experience': experience_level
+        'keywords': keywords,
+        'experience': experience_years
     }
     response = requests.post(url, json=payload)
-    if response.status_code == 200:
-        data = response.json()
-        jobs = data.get('jobs', [])
-        return jobs
+    if response.ok:
+        jobs = response.json().get('jobs', [])
+        return [f"{job['title']} at {job['company']} ({job['location']})" for job in jobs]
     else:
         return []
 
-# DOCX Export Helper
 def export_docx(text, filename="cover_letter.docx"):
     doc = Document()
     for line in text.strip().split('\n'):
@@ -97,7 +91,6 @@ def export_docx(text, filename="cover_letter.docx"):
     buffer.seek(0)
     return buffer
 
-# Resume Upload
 resume = st.file_uploader("Upload your resume (PDF, DOCX, or TXT)")
 resume_content = ""
 
@@ -118,102 +111,34 @@ if resume:
             resume_content = resume_content[:4000]
 
         st.success("✅ Resume parsed successfully!")
-        jd_based = st.radio("Do you want resume enhancement tips based on a Job Description (JD)?", ('Yes', 'No'))
-
-        if jd_based == 'Yes':
-            jd_text = st.text_area("Paste the Job Description here:")
-            if jd_text and st.button("Generate JD-based Resume Enhancement Report"):
-                if len(jd_text) > 2000:
-                    st.warning("⚠️ JD text too long; trimming.")
-                    jd_text = jd_text[:2000]
-                with st.spinner("Generating..."):
-                    prompt = f"""You are a career expert. Analyze the following resume and job description, and provide bullet-point suggestions to improve the resume based on the JD:
-
-Resume:
-{resume_content}
-
-Job Description:
-{jd_text}
-
-Respond in a structured and professional tone."""
-                    st.write(query_groq(prompt))
-        else:
-            position = st.text_input("Enter the position you want to apply for:")
-            if position and st.button("Generate General Resume Report"):
-                with st.spinner("Generating..."):
-                    prompt = f"""You are a resume consultant. Provide concise and actionable improvement tips for the following resume, targeting the position of {position}. Format your response in bullet points:
-
-Resume:
-{resume_content}"""
-                    st.write(query_groq(prompt))
-
-        # Cover Letter
-        if st.checkbox("Generate a cover letter"):
-            experience = st.selectbox("Select your experience level:", ['Fresher', '1-3 years', '3-5 years', '5+ years'])
-            word_limit = st.slider("Select cover letter word limit:", 100, 500, 300)
-            company = st.text_input("Enter the target company name:")
-            if company and st.button("Generate Cover Letter"):
-                with st.spinner("Generating cover letter..."):
-                    prompt = f"""Write a {word_limit}-word professional cover letter for a {experience} candidate applying to {company}, using the following resume for reference:
-
-{resume_content}
-
-Maintain formal tone and structure."""
-                    cover_text = query_groq(prompt)
-                    st.write(cover_text)
-
-                    buffer = export_docx(cover_text)
-                    st.download_button(
-                        label="📄 Download Cover Letter (.docx)",
-                        data=buffer,
-                        file_name="cover_letter.docx",
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                    )
-
-        # Roadmap Generator
-        if st.checkbox("Generate a learning roadmap"):
-            role = st.selectbox("Select role for roadmap:", ['Data Scientist', 'Full Stack Developer', 'Product Manager', 'Data Engineer'])
-            if st.button("Generate Roadmap"):
-                with st.spinner("Generating roadmap..."):
-                    prompt = f"""Create a comprehensive, step-by-step learning roadmap to become a {role}. Include beginner, intermediate, and advanced milestones with key skills, tools, and resources. Format the output in bullet points."""
-                    st.write(query_groq(prompt))
-
-        # Job Recommendations
-        st.subheader("🔍 Get Job Recommendations")
-        experience_level = st.selectbox("Select experience level:", ["Fresher", "1-3 years", "3-5 years", "5+ years"])
-        grad_year = st.text_input("Graduation year (e.g., 2023)")
+        
+        experience_input = st.selectbox("Select your experience level:", ["Fresher", "1-3 years", "3-5 years", "5+ years"])
+        graduation_year = st.text_input("Graduation year (e.g., 2023)")
         stream = st.text_input("Graduation stream (e.g., Computer Science)")
         expected_salary = st.text_input("Expected salary (in USD or your currency)")
-        location = st.text_input("Preferred job location (for Jooble fallback)")
 
+        # Calculate experience from graduation year
+        current_year = datetime.now().year
+        try:
+            grad_year_int = int(graduation_year)
+            auto_experience = max(1, current_year - grad_year_int)
+        except:
+            auto_experience = 1
+
+        st.subheader("🔍 Suggested Jobs")
         if st.button("Get Recommended Jobs"):
             with st.spinner("Fetching recommendations..."):
-                result = get_job_recommendations(resume_content, experience_level, grad_year, stream, expected_salary)
-                if result:
-                    st.success("✅ Here are your recommended job roles:")
-                    for idx, job in enumerate(result, 1):
+                jobs = get_job_recommendations(resume_content, auto_experience, stream, expected_salary)
+                if jobs:
+                    for idx, job in enumerate(jobs, 1):
                         st.markdown(f"**{idx}.** {job}")
                 else:
-                    st.info("Primary model unavailable. Using Jooble fallback.")
-                    jooble_jobs = get_jooble_jobs(stream or "", location or "", experience_level)
+                    jooble_jobs = get_jooble_jobs(stream, auto_experience)
                     if jooble_jobs:
-                        st.success("✅ Jobs from Jooble:")
                         for idx, job in enumerate(jooble_jobs, 1):
-                            st.markdown(f"**{idx}.** {job.get('title')} at {job.get('company')} in {job.get('location')}")
-                            st.write(f"Link: {job.get('link')}")
+                            st.markdown(f"**{idx}.** {job}")
                     else:
-                        st.warning("❌ No jobs found from Jooble.")
-
-        # Chatbot
-        st.subheader("💬 Chat with the AI Career Assistant")
-        user_query = st.text_input("Ask your career-related question:")
-        if user_query:
-            with st.spinner("Thinking..."):
-                prompt = f"""You are an expert career assistant. Provide a clear, concise, and structured answer in bullet points to the following question:
-
-{user_query}"""
-                result = query_groq(prompt)
-                st.write(result)
+                        st.info("No suitable jobs found at this time.")
     else:
         st.error("Could not extract text from the uploaded resume.")
 else:
