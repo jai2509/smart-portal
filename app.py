@@ -47,9 +47,9 @@ def query_groq(prompt):
     if response.ok:
         return response.json()['choices'][0]['message']['content']
     else:
-        return f"Error: {response.text}"
+        return "There was an issue generating the response."
 
-# Hugging Face Job Recommendation API fallback
+# Hugging Face Job Recommendation API
 def get_job_recommendations(resume, experience, grad_year, stream, expected_salary):
     API_URL = "https://api-inference.huggingface.co/models/jaik256/jobRecommendation"
     headers = {
@@ -69,16 +69,21 @@ def get_job_recommendations(resume, experience, grad_year, stream, expected_sala
     if response.status_code == 200:
         return response.json()
     else:
-        return {"error": response.text}
+        return None
 
 # Jooble API fallback
-def get_jooble_jobs(query, country="in"):
+def get_jooble_jobs(query, location, experience_level):
     url = f"https://jooble.org/api/{JOOBLE_API_KEY}"
-    payload = {"keywords": query, "location": country}
+    payload = {
+        'keywords': query,
+        'location': location,
+        'experience': experience_level
+    }
     response = requests.post(url, json=payload)
-    if response.ok:
+    if response.status_code == 200:
         data = response.json()
-        return data.get("jobs", [])
+        jobs = data.get('jobs', [])
+        return jobs
     else:
         return []
 
@@ -179,31 +184,25 @@ Maintain formal tone and structure."""
         grad_year = st.text_input("Graduation year (e.g., 2023)")
         stream = st.text_input("Graduation stream (e.g., Computer Science)")
         expected_salary = st.text_input("Expected salary (in USD or your currency)")
+        location = st.text_input("Preferred job location (for Jooble fallback)")
 
         if st.button("Get Recommended Jobs"):
             with st.spinner("Fetching recommendations..."):
                 result = get_job_recommendations(resume_content, experience_level, grad_year, stream, expected_salary)
-                if "error" in result:
-                    st.warning("Primary model failed; switching to Jooble API.")
-                    # Map experience to search keywords
-                    keywords = {
-                        "Fresher": "entry level",
-                        "1-3 years": "junior",
-                        "3-5 years": "mid-level",
-                        "5+ years": "senior"
-                    }.get(experience_level, "")
-
-                    jobs = get_jooble_jobs(keywords)
-                    if jobs:
-                        st.success(f"✅ Found {len(jobs)} jobs on Jooble:")
-                        for idx, job in enumerate(jobs, 1):
-                            st.markdown(f"**{idx}.** [{job['title']}]({job['link']}) — {job['location']} — {job['salary']}")
-                    else:
-                        st.error("No jobs found on Jooble.")
-                else:
+                if result:
                     st.success("✅ Here are your recommended job roles:")
                     for idx, job in enumerate(result, 1):
                         st.markdown(f"**{idx}.** {job}")
+                else:
+                    st.info("Primary model unavailable. Using Jooble fallback.")
+                    jooble_jobs = get_jooble_jobs(stream or "", location or "", experience_level)
+                    if jooble_jobs:
+                        st.success("✅ Jobs from Jooble:")
+                        for idx, job in enumerate(jooble_jobs, 1):
+                            st.markdown(f"**{idx}.** {job.get('title')} at {job.get('company')} in {job.get('location')}")
+                            st.write(f"Link: {job.get('link')}")
+                    else:
+                        st.warning("❌ No jobs found from Jooble.")
 
         # Chatbot
         st.subheader("💬 Chat with the AI Career Assistant")
