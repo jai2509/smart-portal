@@ -49,7 +49,7 @@ def query_groq(prompt):
     else:
         return f"Error: {response.text}"
 
-# Hugging Face Job Recommendation API with fallback to Jooble API
+# Hugging Face Job Recommendation API fallback
 def get_job_recommendations(resume, experience, grad_year, stream, expected_salary):
     API_URL = "https://api-inference.huggingface.co/models/jaik256/jobRecommendation"
     headers = {
@@ -69,23 +69,18 @@ def get_job_recommendations(resume, experience, grad_year, stream, expected_sala
     if response.status_code == 200:
         return response.json()
     else:
-        if 'Task not found' in response.text:
-            return get_jooble_jobs()
         return {"error": response.text}
 
-def get_jooble_jobs():
-    jooble_url = f"https://jooble.org/api/{JOOBLE_API_KEY}"
-    params = {
-        "keywords": "software developer",
-        "location": "remote"
-    }
-    response = requests.post(jooble_url, json=params)
+# Jooble API fallback
+def get_jooble_jobs(query, country="in"):
+    url = f"https://jooble.org/api/{JOOBLE_API_KEY}"
+    payload = {"keywords": query, "location": country}
+    response = requests.post(url, json=payload)
     if response.ok:
         data = response.json()
-        jobs = [f"{job['title']} at {job['company']} ({job['location']})" for job in data.get('jobs', [])]
-        return jobs if jobs else ["No jobs found from Jooble."]
+        return data.get("jobs", [])
     else:
-        return [f"Jooble API error: {response.text}"]
+        return []
 
 # DOCX Export Helper
 def export_docx(text, filename="cover_letter.docx"):
@@ -162,7 +157,6 @@ Maintain formal tone and structure."""
                     cover_text = query_groq(prompt)
                     st.write(cover_text)
 
-                    # Export option
                     buffer = export_docx(cover_text)
                     st.download_button(
                         label="📄 Download Cover Letter (.docx)",
@@ -189,14 +183,29 @@ Maintain formal tone and structure."""
         if st.button("Get Recommended Jobs"):
             with st.spinner("Fetching recommendations..."):
                 result = get_job_recommendations(resume_content, experience_level, grad_year, stream, expected_salary)
-                if isinstance(result, dict) and "error" in result:
-                    st.error(f"Error: {result['error']}")
+                if "error" in result:
+                    st.warning("Primary model failed; switching to Jooble API.")
+                    # Map experience to search keywords
+                    keywords = {
+                        "Fresher": "entry level",
+                        "1-3 years": "junior",
+                        "3-5 years": "mid-level",
+                        "5+ years": "senior"
+                    }.get(experience_level, "")
+
+                    jobs = get_jooble_jobs(keywords)
+                    if jobs:
+                        st.success(f"✅ Found {len(jobs)} jobs on Jooble:")
+                        for idx, job in enumerate(jobs, 1):
+                            st.markdown(f"**{idx}.** [{job['title']}]({job['link']}) — {job['location']} — {job['salary']}")
+                    else:
+                        st.error("No jobs found on Jooble.")
                 else:
                     st.success("✅ Here are your recommended job roles:")
                     for idx, job in enumerate(result, 1):
                         st.markdown(f"**{idx}.** {job}")
 
-        # Chatbot (Using Groq)
+        # Chatbot
         st.subheader("💬 Chat with the AI Career Assistant")
         user_query = st.text_input("Ask your career-related question:")
         if user_query:
