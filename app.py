@@ -48,7 +48,7 @@ def query_groq(prompt):
     else:
         return None
 
-def get_job_recommendations(resume, experience_years, stream, expected_salary):
+def get_job_recommendations(resume, experience_years, stream, expected_salary, location):
     API_URL = "https://api-inference.huggingface.co/models/jaik256/jobRecommendation"
     headers = {
         "Authorization": f"Bearer {HF_TOKEN}",
@@ -60,7 +60,8 @@ def get_job_recommendations(resume, experience_years, stream, expected_salary):
             "experience_level": experience_years,
             "graduation_year": graduation_year,
             "stream": stream,
-            "expected_salary": expected_salary
+            "expected_salary": expected_salary,
+            "location": location
         }
     }
     response = requests.post(API_URL, headers=headers, json=payload)
@@ -69,11 +70,12 @@ def get_job_recommendations(resume, experience_years, stream, expected_salary):
     else:
         return None
 
-def get_jooble_jobs(keywords, experience_years):
+def get_jooble_jobs(keywords, experience_years, location):
     url = f"https://jooble.org/api/{JOOBLE_API_KEY}"
     payload = {
         'keywords': keywords,
-        'experience': experience_years
+        'experience': experience_years,
+        'location': location
     }
     response = requests.post(url, json=payload)
     if response.ok:
@@ -116,8 +118,8 @@ if resume:
         graduation_year = st.text_input("Graduation year (e.g., 2023)")
         stream = st.text_input("Graduation stream (e.g., Computer Science)")
         expected_salary = st.text_input("Expected salary (in USD or your currency)")
+        location = st.text_input("Preferred job location (e.g., New York, Remote)")
 
-        # Calculate experience from graduation year
         current_year = datetime.now().year
         try:
             grad_year_int = int(graduation_year)
@@ -128,12 +130,12 @@ if resume:
         st.subheader("🔍 Suggested Jobs")
         if st.button("Get Recommended Jobs"):
             with st.spinner("Fetching recommendations..."):
-                jobs = get_job_recommendations(resume_content, auto_experience, stream, expected_salary)
+                jobs = get_job_recommendations(resume_content, auto_experience, stream, expected_salary, location)
                 if jobs:
                     for idx, job in enumerate(jobs, 1):
                         st.markdown(f"**{idx}.** {job}")
                 else:
-                    jooble_jobs = get_jooble_jobs(stream, auto_experience)
+                    jooble_jobs = get_jooble_jobs(stream, auto_experience, location)
                     if jooble_jobs:
                         for idx, job in enumerate(jooble_jobs, 1):
                             st.markdown(f"**{idx}.** {job}")
