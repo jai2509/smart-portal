@@ -3,28 +3,22 @@ import requests
 import os
 import docx
 import PyPDF2
-import re
-import logging
 from io import BytesIO
 from docx import Document
 from datetime import datetime
 from dotenv import load_dotenv
-from collections import Counter
-from functools import lru_cache
-from fuzzywuzzy import fuzz
 
+# Load environment variables
 load_dotenv()
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 HF_TOKEN = os.getenv('HF_TOKEN')
 JOOBLE_API_KEY = os.getenv('JOOBLE_API_KEY')
-RAPIDAPI_KEY = os.getenv('RAPIDAPI_KEY')
 
+# Streamlit page setup
 st.set_page_config(page_title="AI Career Assistant", layout="wide")
-st.title("🚀 SmartHire: AI JOB PORTAL")
+st.title("🚀 SmartHire : AI JOB PORTAL")
 
-logging.basicConfig(level=logging.INFO)
-
-# --- Resume Extraction ---
+# Helper functions
 def extract_docx(file):
     try:
         doc = docx.Document(file)
@@ -39,16 +33,6 @@ def extract_pdf(file):
     except Exception:
         return ""
 
-def export_docx(text, filename="cover_letter.docx"):
-    doc = Document()
-    for line in text.strip().split('\n'):
-        doc.add_paragraph(line)
-    buffer = BytesIO()
-    doc.save(buffer)
-    buffer.seek(0)
-    return buffer
-
-# --- GROQ Query ---
 def query_groq(prompt):
     if len(prompt) > 5000:
         prompt = prompt[:5000]
@@ -67,76 +51,34 @@ def query_groq(prompt):
     else:
         return None
 
-# --- Skill Synonym Expansion ---
-SKILL_SYNONYMS = {
-    "python": ["py"],
-    "java": ["java programming"],
-    "sql": ["database"],
-    "javascript": ["js"],
-    "machine learning": ["ml"],
-    "data analysis": ["analytics"]
-}
-
-def expand_skills(skills):
-    expanded = set(skills)
-    for skill in skills:
-        synonyms = SKILL_SYNONYMS.get(skill.lower(), [])
-        expanded.update(synonyms)
-    return list(expanded)
-
-# --- Job Fetching ---
-@lru_cache(maxsize=10)
-def fetch_jobs():
-    url = "https://jsearch.p.rapidapi.com/search"
-    headers = {
-        "X-RapidAPI-Key": RAPIDAPI_KEY,
-        "X-RapidAPI-Host": "jsearch.p.rapidapi.com"
-    }
-    params = {"query": "software developer", "num_pages": 1}
-    response = requests.get(url, headers=headers, params=params)
+def get_jooble_jobs(keywords, experience_years, location):
+    url = f"https://jooble.org/api/{JOOBLE_API_KEY}"
+    payload = {'keywords': keywords, 'experience': experience_years, 'location': location}
+    response = requests.post(url, json=payload)
     if response.ok:
-        return response.json().get("data", [])
+        jobs = response.json().get('jobs', [])
+        return [{
+            'title': job['title'],
+            'company': job['company'],
+            'location': job['location'],
+            'link': job.get('link', '')
+        } for job in jobs]
     else:
-        logging.error(f"API error: {response.status_code}")
         return []
 
-def fuzzy_match(skill, text, threshold=85):
-    return fuzz.partial_ratio(skill.lower(), text.lower()) >= threshold
+def export_docx(text):
+    doc = Document()
+    for line in text.strip().split('\n'):
+        doc.add_paragraph(line)
+    buffer = BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    return buffer
 
-def match_jobs(user_skills):
-    jobs = fetch_jobs()
-    expanded_skills = expand_skills(user_skills)
-    matched_jobs = []
-    missing_skills_per_job = {}
-    all_missing_skills = []
-
-    for job in jobs:
-        job_text = f"{job['job_title']} {job['job_description']}"
-        matched = any(fuzzy_match(skill, job_text) for skill in expanded_skills)
-        if matched:
-            matched_jobs.append(job)
-            missing_skills = [skill for skill in expanded_skills if not fuzzy_match(skill, job_text)]
-            missing_skills_per_job[job['job_id']] = missing_skills
-            all_missing_skills.extend(missing_skills)
-
-    prioritized_missing_skills = Counter(all_missing_skills).most_common()
-    return matched_jobs, missing_skills_per_job, prioritized_missing_skills
-
-def generate_skill_gap_report(matched_jobs, missing_skills_per_job, prioritized_missing_skills):
-    report = "## Skill Gap Report\n\n"
-    report += "### Prioritized Missing Skills:\n"
-    for skill, count in prioritized_missing_skills:
-        report += f"- {skill} (missing in {count} jobs)\n"
-    report += "\n### Matched Jobs and Missing Skills:\n"
-    for job in matched_jobs:
-        job_id = job['job_id']
-        report += f"- {job['job_title']} at {job['employer_name']} ({job['job_city']})\n"
-        report += f"  Missing skills: {', '.join(missing_skills_per_job.get(job_id, [])) or 'None'}\n"
-    return report
-
-# --- Streamlit App ---
+# File upload and extraction
 resume = st.file_uploader("Upload your resume (PDF, DOCX, or TXT)")
 resume_content = ""
+
 if resume:
     ext = resume.name.split('.')[-1].lower()
     if ext == 'pdf':
@@ -160,21 +102,40 @@ if resume:
         expected_salary = st.text_input("Expected salary (in USD or your currency)")
         location = st.text_input("Preferred job location (e.g., New York, Remote)")
 
-        st.subheader("🔍 Suggested Jobs (Jooble)")
-        if st.button("Get Recommended Jobs"):
-            st.info("This section currently uses Jooble API.")
+        current_year = datetime.now().year
+        try:
+            grad_year_int = int(graduation_year)
+            auto_experience = max(1, current_year - grad_year_int)
+        except:
+            auto_experience = 1
 
+        # Suggested Jobs
+        st.subheader("🔍 Suggested Jobs")
+        if st.button("Get Recommended Jobs"):
+            with st.spinner("Fetching recommendations..."):
+                jooble_jobs = get_jooble_jobs(stream, auto_experience, location)
+                if jooble_jobs:
+                    for idx, job in enumerate(jooble_jobs, 1):
+                        st.markdown(f"**{idx}.** [{job['title']} at {job['company']} ({job['location']})]({job['link']})")
+                else:
+                    st.info("No suitable jobs found at this time.")
+
+        # Resume Improvement Tips (NEW)
         st.subheader("✍️ Resume Improvement Tips")
         job_position = st.text_input("Which position are you applying for?")
         if st.button("Get Resume Tips"):
             if job_position:
                 tips_prompt = f"Give resume improvement suggestions for someone applying to a {job_position} position. Here's the resume:\n{resume_content}"
-                tips = query_groq(tips_prompt)
+                with st.spinner("Generating tips..."):
+                    tips = query_groq(tips_prompt)
                 if tips:
                     st.write(tips)
+                else:
+                    st.error("Failed to generate tips. Please try again.")
             else:
                 st.warning("Please specify the job position you're applying for.")
 
+        # Cover Letter Generator (NEW)
         st.subheader("📝 Generate Cover Letter")
         company_name = st.text_input("What company are you applying to?")
         word_limit = st.slider("Desired word count for the cover letter", min_value=300, max_value=500, value=350, step=10)
@@ -184,18 +145,23 @@ if resume:
                     f"Generate a professional and tailored cover letter around {word_limit} words "
                     f"for the following resume. The user is applying to {company_name}:\n{resume_content}"
                 )
-                cover_letter = query_groq(cover_prompt)
+                with st.spinner("Generating cover letter..."):
+                    cover_letter = query_groq(cover_prompt)
                 if cover_letter:
                     st.download_button("Download Cover Letter", export_docx(cover_letter), file_name="cover_letter.docx")
+                else:
+                    st.error("Failed to generate cover letter. Please try again.")
             else:
                 st.warning("Please enter the company name you're applying to.")
 
+        # Career Roadmap
         st.subheader("🗺️ Career Roadmap")
         if st.button("Get Career Roadmap"):
             roadmap = query_groq(f"Generate a career roadmap for someone with this background:\n{resume_content}")
             if roadmap:
                 st.write(roadmap)
 
+        # Career Chatbot
         st.subheader("💬 Career Chatbot")
         user_question = st.text_input("Ask the AI Career Assistant a question:")
         if user_question:
@@ -203,16 +169,6 @@ if resume:
             if answer:
                 st.write(answer)
 
-        st.subheader("🚀 Advanced Job Match & Skill Gap Analysis")
-        user_skills_input = st.text_input("Enter your current skills (comma-separated)")
-        if st.button("Analyze Jobs and Gaps"):
-            if user_skills_input:
-                user_skills = [skill.strip() for skill in user_skills_input.split(",")]
-                matched_jobs, missing_skills_per_job, prioritized_missing_skills = match_jobs(user_skills)
-                report = generate_skill_gap_report(matched_jobs, missing_skills_per_job, prioritized_missing_skills)
-                st.markdown(report)
-            else:
-                st.warning("Please enter at least one skill to analyze.")
     else:
         st.error("Could not extract text from the uploaded resume.")
 else:
