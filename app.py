@@ -1,161 +1,175 @@
 import streamlit as st
-import base64
-import os
-import fitz  # PyMuPDF
-import docx2txt
 import requests
-from streamlit_lottie import st_lottie
+import os
+import docx
+import PyPDF2
+from io import BytesIO
+from docx import Document
+from datetime import datetime
+from dotenv import load_dotenv
 
-# ================================
-# THEME SETUP
-# ================================
-theme = st.sidebar.selectbox("Choose Theme", ["Light", "Dark", "Vibrant"])
+# Load environment variables
+load_dotenv()
+GROQ_API_KEY = os.getenv('GROQ_API_KEY')
+HF_TOKEN = os.getenv('HF_TOKEN')
+JOOBLE_API_KEY = os.getenv('JOOBLE_API_KEY')
 
-if theme == "Light":
-    primaryColor = "#4CAF50"
-    backgroundColor = "#FFFFFF"
-    secondaryBackgroundColor = "#F0F2F6"
-    textColor = "#000000"
-elif theme == "Dark":
-    primaryColor = "#BB86FC"
-    backgroundColor = "#121212"
-    secondaryBackgroundColor = "#1F1F1F"
-    textColor = "#FFFFFF"
-else:  # Vibrant
-    primaryColor = "#FF5722"
-    backgroundColor = "#FFF3E0"
-    secondaryBackgroundColor = "#FFE0B2"
-    textColor = "#000000"
+# Streamlit page setup
+st.set_page_config(page_title="AI Career Assistant", layout="wide")
+st.title("🚀 SmartHire : AI JOB PORTAL")
 
-st.markdown(
-    f"""
-    <style>
-    .stApp {{
-        background-color: {backgroundColor};
-        color: {textColor};
-    }}
-    .stButton>button {{
-        background-color: {primaryColor};
-        color: white;
-    }}
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+# Helper functions
+def extract_docx(file):
+    try:
+        doc = docx.Document(file)
+        return "\n".join([para.text for para in doc.paragraphs if para.text.strip()])
+    except Exception:
+        return ""
 
-# ================================
-# HELPER FUNCTION FOR LOTTIE
-# ================================
-def load_lottieurl(url):
-    r = requests.get(url)
-    if r.status_code != 200:
+def extract_pdf(file):
+    try:
+        reader = PyPDF2.PdfReader(file)
+        return "".join([page.extract_text() or "" for page in reader.pages])
+    except Exception:
+        return ""
+
+def query_groq(prompt):
+    if len(prompt) > 5000:
+        prompt = prompt[:5000]
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    data = {
+        "model": "llama3-70b-8192",
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.5
+    }
+    response = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=data)
+    if response.ok:
+        return response.json()['choices'][0]['message']['content']
+    else:
         return None
-    return r.json()
 
-lottie_ai = load_lottieurl("https://assets2.lottiefiles.com/packages/lf20_jcikwtux.json")
+def get_jooble_jobs(keywords, experience_years, location):
+    url = f"https://jooble.org/api/{JOOBLE_API_KEY}"
+    payload = {'keywords': keywords, 'experience': experience_years, 'location': location}
+    response = requests.post(url, json=payload)
+    if response.ok:
+        jobs = response.json().get('jobs', [])
+        return [{
+            'title': job['title'],
+            'company': job['company'],
+            'location': job['location'],
+            'link': job.get('link', '')
+        } for job in jobs]
+    else:
+        return []
 
-# ================================
-# SIDEBAR NAVIGATION
-# ================================
-st.sidebar.title("Navigation")
-selection = st.sidebar.radio("Go to", [
-    "🏠 Home", "📤 Upload Resume", "💼 Job Recommendations", 
-    "📌 Resume Tips", "✍️ Cover Letter Generator", 
-    "🗺️ Career Roadmap", "💬 Career Chatbot"])
+def export_docx(text):
+    doc = Document()
+    for line in text.strip().split('\n'):
+        doc.add_paragraph(line)
+    buffer = BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    return buffer
 
-# ================================
-# PAGE CONTENT
-# ================================
-if selection == "🏠 Home":
-    st.title("Welcome to SmartHire: AI Job Portal")
-    st_lottie(lottie_ai, height=250)
-    st.markdown("""
-    ### 🚀 What You Can Do Here:
-    - Upload and analyze your resume
-    - Get AI-powered job recommendations
-    - Receive personalized resume tips
-    - Generate professional cover letters
-    - Plan your career roadmap
-    - Interact with an AI career advisor
-    """)
+# File upload and extraction
+resume = st.file_uploader("Upload your resume (PDF, DOCX, or TXT)")
+resume_content = ""
 
-elif selection == "📤 Upload Resume":
-    st.header("📤 Upload Your Resume")
-    uploaded_file = st.file_uploader("Choose a resume file (PDF/DOCX/TXT)", type=["pdf", "docx", "txt"], help="Upload your resume to receive personalized job insights.")
+if resume:
+    ext = resume.name.split('.')[-1].lower()
+    if ext == 'pdf':
+        resume_content = extract_pdf(resume)
+    elif ext == 'docx':
+        resume_content = extract_docx(resume)
+    elif ext == 'txt':
+        resume_content = resume.read().decode(errors='ignore')
+    else:
+        st.error("Unsupported file format. Please upload PDF, DOCX, or TXT.")
 
-    if uploaded_file is not None:
-        file_type = uploaded_file.name.split('.')[-1]
+    if resume_content.strip():
+        if len(resume_content) > 4000:
+            st.warning("⚠ Resume is large; trimming to 4000 characters.")
+            resume_content = resume_content[:4000]
 
-        if file_type == 'pdf':
-            text = ""
-            pdf = fitz.open(stream=uploaded_file.read(), filetype="pdf")
-            for page in pdf:
-                text += page.get_text()
+        st.success("✅ Resume parsed successfully!")
 
-        elif file_type == 'docx':
-            text = docx2txt.process(uploaded_file)
+        graduation_year = st.text_input("Graduation year (e.g., 2023)")
+        stream = st.text_input("Graduation stream (e.g., Computer Science)")
+        expected_salary = st.text_input("Expected salary (in USD or your currency)")
+        location = st.text_input("Preferred job location (e.g., New York, Remote)")
 
-        else:  # txt
-            text = uploaded_file.read().decode("utf-8")
+        current_year = datetime.now().year
+        try:
+            grad_year_int = int(graduation_year)
+            auto_experience = max(1, current_year - grad_year_int)
+        except:
+            auto_experience = 1
 
-        st.success("Resume successfully processed!")
-        st.text_area("Parsed Resume Text", text, height=300)
+        # Suggested Jobs
+        st.subheader("🔍 Suggested Jobs")
+        if st.button("Get Recommended Jobs"):
+            with st.spinner("Fetching recommendations..."):
+                jooble_jobs = get_jooble_jobs(stream, auto_experience, location)
+                if jooble_jobs:
+                    for idx, job in enumerate(jooble_jobs, 1):
+                        st.markdown(f"{idx}.** [{job['title']} at {job['company']} ({job['location']})]({job['link']})")
+                else:
+                    st.info("No suitable jobs found at this time.")
 
-elif selection == "💼 Job Recommendations":
-    st.header("💼 Job Recommendations")
-    st.markdown("""Provide your details to get job suggestions using AI.
-    """)
-    experience = st.slider("Years of Experience", 0, 30, 2)
-    expected_salary = st.number_input("Expected Salary ($)", min_value=0)
-    graduation_year = st.text_input("Graduation Year", help="e.g., 2023")
-    stream = st.text_input("Field of Study", help="e.g., Computer Science")
+        # Resume Improvement Tips (NEW)
+        st.subheader("✍ Resume Improvement Tips")
+        job_position = st.text_input("Which position are you applying for?")
+        if st.button("Get Resume Tips"):
+            if job_position:
+                tips_prompt = f"Give resume improvement suggestions for someone applying to a {job_position} position. Here's the resume:\n{resume_content}"
+                with st.spinner("Generating tips..."):
+                    tips = query_groq(tips_prompt)
+                if tips:
+                    st.write(tips)
+                else:
+                    st.error("Failed to generate tips. Please try again.")
+            else:
+                st.warning("Please specify the job position you're applying for.")
 
-    if st.button("Get Recommendations"):
-        st.info("🔍 Fetching job recommendations using your details and resume...")
-        # Placeholder logic
-        st.success("Here are your top job matches:")
-        st.write("1. Software Engineer at ABC Corp")
-        st.write("2. Data Analyst at XYZ Ltd")
+        # Cover Letter Generator (NEW)
+        st.subheader("📝 Generate Cover Letter")
+        company_name = st.text_input("What company are you applying to?")
+        word_limit = st.slider("Desired word count for the cover letter", min_value=300, max_value=500, value=350, step=10)
+        if st.button("Generate Cover Letter"):
+            if company_name:
+                cover_prompt = (
+                    f"Generate a professional and tailored cover letter around {word_limit} words "
+                    f"for the following resume. The user is applying to {company_name}:\n{resume_content}"
+                )
+                with st.spinner("Generating cover letter..."):
+                    cover_letter = query_groq(cover_prompt)
+                if cover_letter:
+                    st.download_button("Download Cover Letter", export_docx(cover_letter), file_name="cover_letter.docx")
+                else:
+                    st.error("Failed to generate cover letter. Please try again.")
+            else:
+                st.warning("Please enter the company name you're applying to.")
 
-elif selection == "📌 Resume Tips":
-    st.header("📌 Personalized Resume Tips")
-    st.markdown("AI-generated suggestions will appear here based on your uploaded resume.")
-    st.write("- Add measurable results to your achievements.")
-    st.write("- Highlight your latest project experiences.")
+        # Career Roadmap
+        st.subheader("🗺 Career Roadmap")
+        if st.button("Get Career Roadmap"):
+            roadmap = query_groq(f"Generate a career roadmap for someone with this background:\n{resume_content}")
+            if roadmap:
+                st.write(roadmap)
 
-elif selection == "✍️ Cover Letter Generator":
-    st.header("✍️ Cover Letter Generator")
-    word_count = st.slider("Word Limit", 50, 500, 150)
-    job_title = st.text_input("Target Job Title", help="e.g., Data Scientist")
+        # Career Chatbot
+        st.subheader("💬 Career Chatbot")
+        user_question = st.text_input("Ask the AI Career Assistant a question:")
+        if user_question:
+            answer = query_groq(f"Question: {user_question}\nBased on this resume:\n{resume_content}")
+            if answer:
+                st.write(answer)
 
-    if st.button("Generate Cover Letter"):
-        st.info("Creating your cover letter...")
-        st.write(f"Dear Hiring Manager,\n\nI am writing to express my interest in the {job_title} role...\n\n[Content continues here, limited to {word_count} words].")
-
-elif selection == "🗺️ Career Roadmap":
-    st.header("🗺️ Career Roadmap")
-    desired_role = st.text_input("Your Desired Role", help="e.g., Machine Learning Engineer")
-
-    if st.button("Generate Roadmap"):
-        st.write(f"## Roadmap for {desired_role}")
-        st.markdown("""
-        1. Learn Python, Statistics, and Linear Algebra
-        2. Master ML Libraries (scikit-learn, TensorFlow)
-        3. Work on real-world projects
-        4. Build a portfolio
-        5. Apply to internships or junior roles
-        """)
-
-elif selection == "💬 Career Chatbot":
-    st.header("💬 Career Chatbot")
-    query = st.text_input("Ask me anything about careers")
-
-    if st.button("Get Answer"):
-        st.success("Here’s a helpful tip from your career assistant:")
-        st.write("Keep your resume concise and tailored to each job you apply for.")
-
-# FOOTER
-st.markdown("""
----
-**SmartHire** - Empowering Careers with AI 🚀
-""")
+    else:
+        st.error("Could not extract text from the uploaded resume.")
+else:
+    st.info("☝ Please upload your resume to get started.")
